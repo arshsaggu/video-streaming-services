@@ -1,0 +1,11 @@
+# Context is ./services - send only what the streaming-web image needs.
+*
+!streaming-web/package.json
+!streaming-web/package-lock.json
+!streaming-web/src
+!streaming-web/public
+!streaming-web/test
+!web-common
+**/node_modules
+**/*.log
+**/.env

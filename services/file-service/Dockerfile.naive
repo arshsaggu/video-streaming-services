@@ -1,0 +1,12 @@
+# BASELINE ONLY - used to produce the "before" numbers in docs/REPORT.md.
+# Single stage on the full Debian-based node image (compilers, npm, shell...),
+# whole context copied, runs as root. Do not deploy this. Compare with ./Dockerfile:
+#   ./scripts/measure-images.sh
+FROM node:22
+WORKDIR /app
+COPY . .
+RUN npm install
+RUN mkdir -p /data/videos
+ENV STORAGE_DIR=/data/videos
+EXPOSE 8080
+CMD ["npm", "start"]

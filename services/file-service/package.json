@@ -1,0 +1,13 @@
+{
+  "name": "@vss/file-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internal video file storage service (Node.js standard library only, no dependencies)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}

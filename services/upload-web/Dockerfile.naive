@@ -1,0 +1,11 @@
+# BASELINE ONLY - used to produce the "before" numbers in docs/REPORT.md.
+# Problems on purpose: full Debian-based node image, whole context copied before
+# `npm install` (any code edit re-installs dependencies), npm left in the image,
+# runs as root. Compare with ./Dockerfile using ./scripts/measure-images.sh
+FROM node:22
+WORKDIR /app
+COPY . .
+WORKDIR /app/upload-web
+RUN npm install
+EXPOSE 3000
+CMD ["npm", "start"]

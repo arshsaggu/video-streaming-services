@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload Video · VSS</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="dot"></span>VSS <small>Upload</small></div>
+    <div class="user-chip hidden" id="user-chip">
+      <b id="who"></b><span class="role" id="who-role"></span>
+      <a id="to-watch" href="#" data-port="8082">Watch videos →</a>
+      <button class="ghost" id="logout" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="auth-view" class="hidden">
+      <div class="card narrow">
+        <h1>Sign in to upload</h1>
+        <p class="lede">Uploading needs the <b>uploader</b> or <b>admin</b> role. New accounts start as viewers.</p>
+        <div class="tabs">
+          <button type="button" id="tab-login" class="on">Sign in</button>
+          <button type="button" id="tab-register">Register</button>
+        </div>
+        <form id="login-form" autocomplete="on">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" required minlength="3" maxlength="32"
+                 pattern="[A-Za-z0-9_.\-]{3,32}" autocomplete="username">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required minlength="8" maxlength="128"
+                 autocomplete="current-password">
+          <div class="row"><button id="login-submit" type="submit">Sign in</button></div>
+          <div id="login-msg" class="msg" role="status"></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="app-view" class="hidden">
+      <h1>Upload a video</h1>
+      <p class="lede">MP4, WebM, Ogg or QuickTime, up to <span id="max-mb">500</span> MB. Files are checked by content, not just extension.</p>
+      <div class="grid">
+        <form class="card" id="upload-form">
+          <h2>New upload</h2>
+          <label for="file">Video file</label>
+          <input id="file" name="file" type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime" required>
+          <label for="title">Title</label>
+          <input id="title" name="title" type="text" required maxlength="120">
+          <label for="description">Description <span class="meta">(optional)</span></label>
+          <textarea id="description" name="description" maxlength="1000"></textarea>
+          <progress id="progress" class="hidden" max="100" value="0"></progress>
+          <div class="row"><button id="upload-btn" type="submit">Upload</button></div>
+          <div id="upload-msg" class="msg" role="status"></div>
+        </form>
+        <div class="card">
+          <h2>Your uploads</h2>
+          <table>
+            <thead><tr><th>Title</th><th>Size</th><th>Uploaded</th></tr></thead>
+            <tbody id="mine"></tbody>
+          </table>
+          <div id="mine-empty" class="empty hidden">Nothing uploaded yet.</div>
+        </div>
+      </div>
+
+      <form class="card hidden" id="admin-form">
+        <h2>Admin: create an account</h2>
+        <p class="meta">Give a teammate the uploader role, or create another admin.</p>
+        <div class="grid">
+          <div>
+            <label for="new-username">Username</label>
+            <input id="new-username" type="text" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]{3,32}" autocomplete="off">
+          </div>
+          <div>
+            <label for="new-password">Temporary password</label>
+            <input id="new-password" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
+          </div>
+        </div>
+        <label for="new-role">Role</label>
+        <select id="new-role">
+          <option value="uploader">uploader</option>
+          <option value="viewer">viewer</option>
+          <option value="admin">admin</option>
+        </select>
+        <div class="row"><button type="submit" id="admin-btn">Create account</button></div>
+        <div id="admin-msg" class="msg" role="status"></div>
+      </form>
+    </section>
+  </main>
+  <script src="/session.js"></script>
+  <script src="/upload.js"></script>
+</body>
+</html>

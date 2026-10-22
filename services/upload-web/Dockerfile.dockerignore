@@ -1,0 +1,11 @@
+# Context is ./services - send only what the upload-web image needs.
+*
+!upload-web/package.json
+!upload-web/package-lock.json
+!upload-web/src
+!upload-web/public
+!upload-web/test
+!web-common
+**/node_modules
+**/*.log
+**/.env

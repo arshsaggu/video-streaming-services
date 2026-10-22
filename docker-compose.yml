@@ -1,0 +1,262 @@
+# Video Streaming System - complete stack.
+#
+#   ./scripts/init-secrets.sh        # once: generate random secrets into ./secrets/
+#   docker compose up -d --build
+#   open http://localhost:8081  (upload)   http://localhost:8082  (watch)
+#
+# Only the two web apps publish ports. MySQL, the auth service and the file
+# service live on the `backend` network, which is `internal: true` (no route
+# to the host or the internet).
+
+name: vss
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"   # rotate so logs can't fill the disk
+    max-file: "3"
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  logging: *logging
+
+services:
+  # ---------------------------------------------------------------- MySQL
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    # Init scripts are mounted read-only at /initdb-src and copied into the image's init dir
+    # with mode 644 before the normal entrypoint runs. The entrypoint then *sources* them
+    # instead of executing them, so they work no matter what permissions (or macOS
+    # quarantine flags) the files have on the host.
+    entrypoint:
+      - sh
+      - -c
+      - cp /initdb-src/* /docker-entrypoint-initdb.d/ && chmod 644 /docker-entrypoint-initdb.d/* && exec docker-entrypoint.sh "$$@"
+      - docker-entrypoint
+    command:
+      - mysqld
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=150
+      - --skip-name-resolve
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+    secrets:
+      - db_root_password
+      - db_auth_password
+      - db_upload_password
+      - db_stream_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/init:/initdb-src:ro
+    networks:
+      - backend
+    healthcheck:
+      # Healthy only once BOTH init scripts have run: the schema exists and all three
+      # service accounts exist (not just "process up").
+      test: ["CMD-SHELL", "[ \"$$(MYSQL_PWD=\"$$(cat /run/secrets/db_root_password)\" mysql -h 127.0.0.1 -uroot -N -e \"SELECT COUNT(*) FROM mysql.user WHERE user IN ('auth_svc','upload_svc','stream_svc') AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='media' AND table_name='videos')\")\" = 3 ]"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------- Authentication Service (Python)
+  auth-service:
+    <<: *hardening
+    build:
+      context: ./services/auth-service
+      target: runtime
+    image: ${REGISTRY:-ghcr.io/your-github-user}/vss-auth-service:${TAG:-local}
+    environment:
+      DB_HOST: mysql
+      DB_USER: auth_svc
+      DB_NAME: auth
+      DB_PASSWORD_FILE: /run/secrets/db_auth_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      AUTH_WORKERS: ${AUTH_WORKERS:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - db_auth_password
+      - jwt_secret
+      - admin_password
+    tmpfs:
+      - /tmp
+    networks:
+      - backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"     # scrypt password hashing is CPU-bound; see report
+          memory: 256M    # 2 workers x ~45 MB + scrypt's 32 MB per hash in flight
+          pids: 100
+
+  # ---------------------------------------------------------------- File System Service (Node.js)
+  file-service:
+    <<: *hardening
+    build:
+      context: ./services/file-service
+      target: runtime
+    image: ${REGISTRY:-ghcr.io/your-github-user}/vss-file-service:${TAG:-local}
+    environment:
+      INTERNAL_TOKEN_FILE: /run/secrets/internal_token
+      MAX_FILE_MB: ${MAX_UPLOAD_MB:-500}
+      READ_BUFFER_KB: ${READ_BUFFER_KB:-1024}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - internal_token
+    volumes:
+      - video-data:/data
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 192M    # measured peak ~120 MB with 8 parallel full-file streams; does not grow with file size
+          pids: 100
+
+  # ---------------------------------------------------------------- Upload Video web app (Node)
+  upload-web:
+    <<: *hardening
+    build:
+      context: ./services
+      dockerfile: upload-web/Dockerfile
+      target: runtime
+    image: ${REGISTRY:-ghcr.io/your-github-user}/vss-upload-web:${TAG:-local}
+    ports:
+      - "${UPLOAD_PORT:-8081}:3000"
+    environment:
+      DB_HOST: mysql
+      DB_USER: upload_svc
+      DB_NAME: media
+      DB_PASSWORD_FILE: /run/secrets/db_upload_password
+      INTERNAL_TOKEN_FILE: /run/secrets/internal_token
+      AUTH_URL: http://auth-service:8000
+      FILE_SERVICE_URL: http://file-service:8080
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+      AUTH_CACHE_TTL_MS: ${AUTH_CACHE_TTL_MS:-30000}
+      HTTP_KEEPALIVE: ${HTTP_KEEPALIVE:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - db_upload_password
+      - internal_token
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 192M    # uploads are streamed, never buffered, so memory stays flat
+          pids: 100
+
+  # ---------------------------------------------------------------- Video Streaming web app (Node)
+  streaming-web:
+    <<: *hardening
+    build:
+      context: ./services
+      dockerfile: streaming-web/Dockerfile
+      target: runtime
+    image: ${REGISTRY:-ghcr.io/your-github-user}/vss-streaming-web:${TAG:-local}
+    ports:
+      - "${STREAM_PORT:-8082}:3000"
+    environment:
+      DB_HOST: mysql
+      DB_USER: stream_svc
+      DB_NAME: media
+      DB_PASSWORD_FILE: /run/secrets/db_stream_password
+      INTERNAL_TOKEN_FILE: /run/secrets/internal_token
+      AUTH_URL: http://auth-service:8000
+      FILE_SERVICE_URL: http://file-service:8080
+      AUTH_CACHE_TTL_MS: ${AUTH_CACHE_TTL_MS:-30000}
+      HTTP_KEEPALIVE: ${HTTP_KEEPALIVE:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - db_stream_password
+      - internal_token
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"     # most traffic: catalogue + video byte proxying
+          memory: 256M
+          pids: 100
+
+  # ---------------------------------------------------------------- Load test (only with --profile loadtest)
+  k6:
+    image: grafana/k6:0.54.0
+    profiles: ["loadtest"]
+    networks:
+      - frontend
+    volumes:
+      - ./tests/load:/scripts:ro
+      - ./results:/results
+    environment:
+      BASE_URL: http://streaming-web:3000
+      K6_USER: ${K6_USER:-loadtest}
+      K6_PASSWORD: ${K6_PASSWORD:-loadtest-pass-123}
+    entrypoint: ["k6", "run", "--summary-export=/results/k6-summary.json", "/scripts/stream.js"]
+
+networks:
+  frontend: {}
+  backend:
+    internal: true   # no published ports, no outbound internet
+
+volumes:
+  mysql-data:      # MySQL data files: users + video metadata
+  video-data:      # the uploaded video files
+
+secrets:
+  db_root_password:
+    file: ./secrets/db_root_password.txt
+  db_auth_password:
+    file: ./secrets/db_auth_password.txt
+  db_upload_password:
+    file: ./secrets/db_upload_password.txt
+  db_stream_password:
+    file: ./secrets/db_stream_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  internal_token:
+    file: ./secrets/internal_token.txt
+  admin_password:
+    file: ./secrets/admin_password.txt

@@ -1,0 +1,16 @@
+{
+  "name": "@vss/upload-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Upload Video web app",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "mysql2": "^3.12.0"
+  },
+  "license": "MIT"
+}

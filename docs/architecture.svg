@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 800" width="1100" height="800" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3b3b40"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d6452f"/>
+    </marker>
+    <style>
+      .t { font-size: 15px; font-weight: 700; fill: #1d1d1f; }
+      .s { font-size: 12px; fill: #55555b; }
+      .tiny { font-size: 11px; fill: #6b6b70; }
+      .call { font-size: 11px; fill: #2c4a86; font-weight: 600; }
+      .net { font-size: 12px; font-weight: 700; letter-spacing: .06em; }
+      .box { fill: #ffffff; stroke: #2b2b30; stroke-width: 1.5; }
+      .db { fill: #fff8ee; stroke: #2b2b30; stroke-width: 1.5; }
+      .vol { fill: #eef4ff; stroke: #4a6fb5; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .ln { stroke: #55555b; stroke-width: 1.4; fill: none; marker-end: url(#arr); }
+      .lnr { stroke: #d6452f; stroke-width: 2; fill: none; marker-end: url(#arrRed); }
+    </style>
+  </defs>
+
+  <rect width="1100" height="800" fill="#fbfaf8"/>
+  <text x="24" y="36" font-size="20" font-weight="800" fill="#1d1d1f">Video Streaming System: container architecture</text>
+  <text x="24" y="57" class="s">Docker Compose project "vss". Red arrows: public traffic from the host. Grey arrows: internal calls on the private backend network.</text>
+
+  <!-- Browser -->
+  <rect x="20" y="230" width="150" height="120" rx="12" class="box"/>
+  <text x="95" y="266" text-anchor="middle" class="t">Browser</text>
+  <text x="95" y="287" text-anchor="middle" class="s">HttpOnly session</text>
+  <text x="95" y="303" text-anchor="middle" class="s">cookie (JWT)</text>
+  <text x="95" y="325" text-anchor="middle" class="tiny">&lt;video&gt; Range requests</text>
+
+  <!-- frontend network -->
+  <rect x="200" y="84" width="270" height="380" rx="14" fill="#fff3ef" stroke="#d6452f" stroke-width="1.3" stroke-dasharray="6 4"/>
+  <text x="216" y="106" class="net" fill="#d6452f">FRONTEND NETWORK</text>
+  <text x="216" y="122" class="tiny">the only network with published ports</text>
+
+  <rect x="225" y="140" width="220" height="110" rx="12" class="box"/>
+  <text x="335" y="167" text-anchor="middle" class="t">Upload Video web app</text>
+  <text x="335" y="187" text-anchor="middle" class="s">Node.js 22 · host :8081</text>
+  <text x="335" y="207" text-anchor="middle" class="tiny">streams upload, checks magic bytes</text>
+  <text x="335" y="223" text-anchor="middle" class="tiny">roles: uploader, admin</text>
+  <text x="335" y="239" text-anchor="middle" class="tiny">0.5 CPU · 192 MB · non-root</text>
+
+  <rect x="225" y="320" width="220" height="110" rx="12" class="box"/>
+  <text x="335" y="347" text-anchor="middle" class="t">Video Streaming web app</text>
+  <text x="335" y="367" text-anchor="middle" class="s">Node.js 22 · host :8082</text>
+  <text x="335" y="387" text-anchor="middle" class="tiny">catalogue + HTTP Range proxy</text>
+  <text x="335" y="403" text-anchor="middle" class="tiny">roles: viewer, uploader, admin</text>
+  <text x="335" y="419" text-anchor="middle" class="tiny">1.0 CPU · 256 MB · non-root</text>
+
+  <!-- backend network -->
+  <rect x="520" y="84" width="555" height="540" rx="14" fill="#f1f3f7" stroke="#4a5568" stroke-width="1.3" stroke-dasharray="6 4"/>
+  <text x="536" y="106" class="net" fill="#4a5568">BACKEND NETWORK  (internal: true)</text>
+  <text x="536" y="122" class="tiny">no published ports · no route to the host or the internet</text>
+
+  <rect x="570" y="140" width="250" height="100" rx="12" class="box"/>
+  <text x="695" y="166" text-anchor="middle" class="t">Authentication Service</text>
+  <text x="695" y="185" text-anchor="middle" class="s">Python 3.12 · Flask · gunicorn :8000</text>
+  <text x="695" y="204" text-anchor="middle" class="call">POST /login · GET /verify · POST /users</text>
+  <text x="695" y="224" text-anchor="middle" class="tiny">scrypt · JWT · 1 CPU · 256 MB · uid 10001</text>
+
+  <rect x="570" y="300" width="250" height="100" rx="12" class="box"/>
+  <text x="695" y="326" text-anchor="middle" class="t">File System Service</text>
+  <text x="695" y="345" text-anchor="middle" class="s">Node.js 22 · distroless · :8080</text>
+  <text x="695" y="364" text-anchor="middle" class="call">PUT /files/{id} · GET /files/{id} + Range</text>
+  <text x="695" y="384" text-anchor="middle" class="tiny">X-Internal-Token · 1 CPU · 192 MB · non-root</text>
+
+  <g>
+    <path d="M570,476 a125,16 0 0,0 250,0 v92 a125,16 0 0,1 -250,0 z" class="db"/>
+    <ellipse cx="695" cy="476" rx="125" ry="16" class="db"/>
+    <text x="695" y="514" text-anchor="middle" class="t">MySQL 8.4</text>
+    <text x="695" y="533" text-anchor="middle" class="s">auth.users · media.videos</text>
+    <text x="695" y="552" text-anchor="middle" class="call">INSERT (upload) · SELECT (stream)</text>
+    <text x="695" y="570" text-anchor="middle" class="tiny">one least-privilege account per service</text>
+  </g>
+
+  <!-- volumes -->
+  <rect x="900" y="318" width="140" height="64" rx="10" class="vol"/>
+  <text x="970" y="344" text-anchor="middle" font-size="13" font-weight="700" fill="#2c4a86">video-data</text>
+  <text x="970" y="363" text-anchor="middle" class="tiny">named volume (videos)</text>
+  <rect x="900" y="500" width="140" height="64" rx="10" class="vol"/>
+  <text x="970" y="526" text-anchor="middle" font-size="13" font-weight="700" fill="#2c4a86">mysql-data</text>
+  <text x="970" y="545" text-anchor="middle" class="tiny">named volume (DB files)</text>
+  <path d="M820,350 L897,350" class="ln"/>
+  <path d="M820,532 L897,532" class="ln"/>
+
+  <!-- auth -> mysql (around the right side) -->
+  <path d="M820,175 C870,175 870,470 822,492" class="ln"/>
+
+  <!-- browser -> web apps -->
+  <path d="M170,265 C195,245 200,200 222,195" class="lnr"/>
+  <path d="M170,315 C195,335 200,370 222,375" class="lnr"/>
+
+  <!-- upload-web -> backend -->
+  <path d="M445,165 L567,165" class="ln"/>
+  <path d="M445,200 L567,318" class="ln"/>
+  <path d="M445,235 L567,488" class="ln"/>
+  <!-- streaming-web -> backend -->
+  <path d="M445,345 L567,218" class="ln"/>
+  <path d="M445,380 L567,375" class="ln"/>
+  <path d="M445,415 L567,525" class="ln"/>
+
+  <!-- legend -->
+  <rect x="20" y="650" width="1055" height="130" rx="12" fill="#ffffff" stroke="#c9c6bf"/>
+  <text x="40" y="676" font-size="13" font-weight="700" fill="#1d1d1f">Docker secrets (files in ./secrets, mounted read-only at /run/secrets)</text>
+  <text x="40" y="698" class="s">jwt_secret: auth-service only (web apps check tokens by calling /verify)</text>
+  <text x="40" y="717" class="s">internal_token: shared by the web apps and file-service</text>
+  <text x="40" y="736" class="s">db_auth / db_upload / db_stream_password: one MySQL account each</text>
+  <text x="40" y="755" class="s">db_root_password: mysql only · admin_password: seeds the first admin</text>
+  <text x="580" y="676" font-size="13" font-weight="700" fill="#1d1d1f">Least privilege</text>
+  <text x="580" y="698" class="s">auth_svc: SELECT, INSERT, UPDATE on auth.users</text>
+  <text x="580" y="717" class="s">upload_svc: SELECT, INSERT, DELETE on media.videos</text>
+  <text x="580" y="736" class="s">stream_svc: SELECT on media.videos</text>
+  <text x="580" y="755" class="s">All app containers: non-root, read-only root fs, cap_drop ALL</text>
+</svg>

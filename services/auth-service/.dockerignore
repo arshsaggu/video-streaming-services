@@ -1,0 +1,12 @@
+# Keep the build context small and never send secrets or local junk to the daemon.
+**/__pycache__
+**/*.pyc
+.venv
+venv
+.pytest_cache
+.mypy_cache
+*.log
+.env
+*.env
+Dockerfile*
+.dockerignore

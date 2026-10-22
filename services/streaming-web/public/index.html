@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Watch · VSS</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="dot"></span>VSS <small>Stream</small></div>
+    <div class="user-chip hidden" id="user-chip">
+      <b id="who"></b><span class="role" id="who-role"></span>
+      <a id="to-upload" href="#" data-port="8081">Upload →</a>
+      <button class="ghost" id="logout" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="auth-view" class="hidden">
+      <div class="card narrow">
+        <h1>Sign in to watch</h1>
+        <p class="lede">Any account can stream. Register to create a viewer account.</p>
+        <div class="tabs">
+          <button type="button" id="tab-login" class="on">Sign in</button>
+          <button type="button" id="tab-register">Register</button>
+        </div>
+        <form id="login-form" autocomplete="on">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" required minlength="3" maxlength="32"
+                 pattern="[A-Za-z0-9_.\-]{3,32}" autocomplete="username">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required minlength="8" maxlength="128"
+                 autocomplete="current-password">
+          <div class="row"><button id="login-submit" type="submit">Sign in</button></div>
+          <div id="login-msg" class="msg" role="status"></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="app-view" class="hidden">
+      <div id="player-section" class="hidden">
+        <div class="player-wrap"><video id="player" controls preload="metadata" playsinline></video></div>
+        <div class="now-playing">
+          <h2 id="np-title"></h2>
+          <div class="meta" id="np-meta"></div>
+          <p id="np-desc"></p>
+        </div>
+      </div>
+      <h1>Library</h1>
+      <p class="lede" id="lib-sub">Pick a video to start streaming.</p>
+      <div id="tiles" class="tiles"></div>
+      <div id="lib-msg" class="msg"></div>
+      <div class="pager">
+        <button class="ghost" id="prev" type="button">← Newer</button>
+        <span id="page-info"></span>
+        <button class="ghost" id="next" type="button">Older →</button>
+      </div>
+    </section>
+  </main>
+  <script src="/session.js"></script>
+  <script src="/watch.js"></script>
+</body>
+</html>

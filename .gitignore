@@ -1,0 +1,10 @@
+# Real secrets are generated locally and must never be committed.
+secrets/
+.env
+
+node_modules/
+__pycache__/
+*.pyc
+results/
+*.log
+.DS_Store
