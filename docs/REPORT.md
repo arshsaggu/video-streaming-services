@@ -2,7 +2,7 @@
 
 CIT3495 Project 1, option 2. This report contains the engineering evidence required by the brief: security, reliability, optimisation, performance, persistence and CI/CD.
 
-> **How to read the numbers.** Results marked **[measured]** were produced while building this project. The services ran as native processes (Python and Node.js) on a 2-vCPU / 8 GB Linux VM, driven by the same k6 script used in the Docker setup. MySQL was replaced by an in-memory store because no MySQL server was available in that build environment. Results marked **[run in Docker]** can only be produced with Docker and the base images, so they are filled in by running the listed script. Each script writes a ready-to-paste table into `results/`. Replace the placeholders before submission.
+> **How to read the numbers.** Results marked **[measured]** were produced while building this project. The services ran as native processes (Python and Node.js) on a 2-vCPU / 8 GB Linux VM, driven by the same k6 script used in the Docker setup. MySQL was replaced by an in-memory store because no MySQL server was available in that build environment. Results marked **[run in Docker]** can only be produced with Docker and the base images, so they are filled in by running the listed script. Each script writes its table into `results/`; the Docker optimisation and vulnerability scan results below were produced this way.
 
 ---
 
@@ -56,19 +56,23 @@ The uploaded video never passes through memory as a whole: it is streamed end to
 | Smaller runtime | Node images delete npm/yarn (not needed at runtime); Python uses `--no-compile` and no pip cache; the file service has zero npm dependencies |
 | Health checks in the image | Node: `node healthcheck.js` (distroless has no shell or curl, so the file service runs `/nodejs/bin/node /app/src/healthcheck.js`). Python: `urllib`. |
 
-### Optimisation evidence: before vs after **[run in Docker]**
+### Optimisation evidence: before vs after **[measured in Docker]**
 
 The baselines `services/file-service/Dockerfile.naive` and `services/upload-web/Dockerfile.naive` are deliberately naive: single stage, the full Debian-based `node:22` image, `COPY . .` before installing dependencies, running as root. `./scripts/measure-images.sh` builds each pair with `--no-cache` (cold), edits one source line, rebuilds (warm), and records the image size.
 
+Measured on 2026-10-22 with `./scripts/measure-images.sh` (Windows, Docker Desktop, x86_64). Sizes are compressed image size; `docker image ls` shows the unpacked on-disk size (204–246 MB for the optimised images).
+
 | Service | Image | Size (MB) | Cold build (s) | Rebuild after code edit (s) | Runs as |
 |---|---|---:|---:|---:|---|
-| file-service | naive | _from results/image-metrics.md_ | | | root |
-| file-service | optimised | | | | 65532 |
-| upload-web | naive | | | | root |
-| upload-web | optimised | | | | node |
+| file-service | naive | 408.9 | 4.0 | 4.3 | root |
+| file-service | optimised | **52.6** | 4.2 | **3.2** | 65532 |
+| upload-web | naive | 412.6 | 4.4 | 4.4 | root |
+| upload-web | optimised | **62.4** | 6.3 | **2.5** | node |
 
-What to expect and explain:
-- **file-service:** the naive image is the full Debian `node:22` image (compilers, npm, a shell: about 1 GB); the optimised one is distroless Node with only the runtime and our source.
+**Result:** images are **85–87% smaller** and run as non-root. Rebuilding after a code edit is **26% faster** (file-service) and **43% faster** (upload-web), because the optimised Dockerfiles install dependencies before copying source. Cold build times are within noise (4–6 s) because the services have very few dependencies; the optimised upload-web cold build is slightly slower because the multi-stage build has more steps.
+
+Why:
+- **file-service:** the naive image is the full Debian `node:22` image (compilers, npm, a shell: ~409 MB compressed, about 1 GB unpacked); the optimised one is distroless Node with only the runtime and our source.
 - **upload-web:** `node:22` (Debian, ~1 GB) vs `node:22-alpine` minus npm.
 - **Warm rebuild:** the naive file re-runs `npm install` after any code edit because the source is copied first. The optimised file reuses the dependency layer.
 
@@ -96,12 +100,12 @@ Verified by `scripts/e2e.sh`:
 
 The file-service image pre-creates `/data/videos` owned by the distroless nonroot user (uid 65532). A new named volume inherits that ownership, so no root step is needed. Every other container root filesystem is read-only, with `tmpfs` where scratch space is needed.
 
-**Persistence test** (`./scripts/persistence-test.sh`) **[run in Docker]**: creates a user, uploads a 1 MB file and records its sha256, then runs `docker compose rm --stop --force mysql file-service` followed by `docker compose up -d`. It then checks that:
+**Persistence test** (`./scripts/persistence-test.sh`): creates a user, uploads a 1 MB file and records its sha256, then runs `docker compose rm --stop --force mysql file-service` followed by `docker compose up -d`. It then checks that:
 1. the user can still log in;
 2. the metadata is still listed;
 3. the streamed bytes have the **same sha256**.
 
-Paste `results/persistence-test.txt` (it prints old and new container IDs to prove the containers were recreated).
+**Demonstrated in Docker (2026-10-22, Windows / Docker Desktop):** uploaded a video as admin and registered `viewer1`, then ran `docker compose down` (all containers removed; `docker compose ps` empty) and `docker compose up -d --wait`. After recreation, `viewer1` could still log in and the video was still listed and played, so users, metadata and video bytes all survived via the `mysql-data` and `video-data` volumes. `./scripts/persistence-test.sh` automates the same check (with a sha256 comparison) and runs in the CI e2e job.
 
 ---
 
@@ -141,6 +145,8 @@ Example log lines produced during the native auth outage (secrets never appear):
 {"level":"error","service":"streaming-web","msg":"request failed","rid":"b060d0f0-59e5-47","path":"/api/login","status":503,"err":"authentication service unavailable"}
 ```
 
+**Demonstrated in Docker (2026-10-22):** with the stack running, `docker compose stop file-service` left the catalogue on `:8082` working while playback returned **503** (seen in the browser's Network tab; tested in an incognito window to avoid the browser cache). After `docker compose start file-service` the service returned to `(healthy)` within about 10 s and playback resumed **without restarting either web app**.
+
 **Known limitation:** plain Docker (not Swarm or Kubernetes) does not restart a container just because it is *unhealthy*, only when it exits. That is why the apps are written to recover in-process rather than relying on restarts.
 
 ---
@@ -161,15 +167,27 @@ Example log lines produced during the native auth outage (secrets never appear):
 | **Output safety** | The UI renders user data with `textContent` only. Strict CSP (`default-src 'self'`, no inline script), plus `X-Frame-Options: DENY`, `nosniff` and `Referrer-Policy`. |
 | **Error hygiene** | Validation errors return field *names* only. FastAPI-style echoing of submitted values (passwords) was deliberately avoided and is unit-tested. 500s return "internal error" with details only in logs. |
 
-### Vulnerability scan **[run in Docker]**
+### Vulnerability scan **[measured in Docker]**
 
 CI runs Trivy on every image on every push. The SARIF report goes to the GitHub Security tab, and **any fixable CRITICAL finding fails the build**. Locally, `./scripts/scan.sh --with-naive` writes `results/scan-summary.md`:
 
+Scanned on 2026-10-22 with `./scripts/scan.sh --with-naive` (Trivy 0.56.2):
+
 | Image | Critical | High | Medium | Low |
 |---|---:|---:|---:|---:|
-| _paste from results/scan-summary.md_ | | | | |
+| `vss-upload-web` (optimised) | **0** | **0** | **0** | **0** |
+| `vss-streaming-web` (optimised) | **0** | **0** | **0** | **0** |
+| `vss-auth-service` (optimised) | 0 | 44 | 68 | 63 |
+| `vss-file-service` (optimised) | 1 | 6 | 35 | 27 |
+| `vss-upload-web:naive` | 31 | 627 | 2034 | 1795 |
+| `vss-file-service:naive` | 31 | 627 | 2034 | 1795 |
 
-Review guidance for the defence:
+**Review of the findings:**
+- **Naive vs optimised:** the naive images (full Debian `node:22`) carry ~4,500 findings including 31 Critical. Switching to Alpine and removing npm takes both web apps to **zero**.
+- **file-service, 1 Critical:** `libssl3` (OpenSSL), CVE-2026-31789, from the distroless Debian 12 base layer. Installed 3.0.18, fixed in 3.0.19. It is a heap overflow that affects **32-bit systems only**; our images are amd64/arm64, the file service does not use TLS, and it is only reachable on the internal network. **Status: fixed upstream**, so a rebuild picks it up once distroless publishes the patched image. Because it is fixable, the CI gate (fail on fixable CRITICAL) blocks this job until then, which is the intended behaviour.
+- **auth-service, 44 High:** all in Debian OS packages from `python:3.12-slim` (`util-linux`, `mount`, `libmount1`, `libblkid1`, `libuuid1`, `libsmartcols1`, `bsdutils`, `login`, `ncurses`, `libsystemd0`, `libudev1`, `perl-base`). All are **`affected` (no fix available)**, with one `fix_deferred`. The application never runs these tools. **Accepted risk**, mitigated by a non-root, read-only container with all capabilities dropped on an internal network. **Planned improvement:** move auth-service to a distroless or Alpine Python base to remove these packages entirely.
+
+Additional notes:
 - **file-service** (distroless Node: no shell, no package manager, no npm, zero dependencies) should be close to 0; any findings come from the Node runtime or the glibc base.
 - **Alpine Node** images are small because npm was removed.
 - Any remaining findings will mostly sit in OS base packages. Explain whether each is fixed upstream (rebuild picks it up) or unfixed (accepted, with the reason), and compare with the naive Debian-based images, which typically carry far more.
@@ -287,7 +305,9 @@ Each run writes `results/perf-summary.md` with throughput, errors, latency, data
    - **Tags:** `sha-<7>` (immutable, traceable to the commit), the branch name, `pr-N` on PRs (built, not pushed), `1.2.3` / `1.2` on `v*` git tags, and `latest` on main.
 3. **e2e**: brings the full stack up with Compose and runs `e2e.sh`, `persistence-test.sh` and `failure-test.sh` against real MySQL. It uploads `results/` as a build artifact.
 
-**Evidence to attach [run in GitHub]**: a screenshot of a green run showing all three jobs, the GHCR package page with the `sha-…` and `latest` tags and both architectures, and the Security tab scan results.
+**Repository:** https://github.com/arshsaggu/video-streaming-services. The pipeline runs on every push to `main`.
+
+**Evidence:** see the Actions tab for the run history, the Packages page for the published `vss-*` images with their `sha-…` and `latest` tags (amd64 + arm64), and the Security tab for the uploaded Trivy results. *(Add a screenshot of the latest run here.)* If the `image (file-service)` job is red, that is the Trivy gate blocking the fixable OpenSSL Critical described in §6 until the distroless base image is republished.
 
 ---
 
